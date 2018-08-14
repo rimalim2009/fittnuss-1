@@ -157,7 +157,8 @@ def step(t_hat, x_hat, C, dt, dx, \
                                      deposit,\
                                      Fi_r, detadt, dFi_r_dt_prev, detadt_r_prev):
     """
-    1時間ステップ分の堆積量ならびに濃度変化の計算を行う
+    calculate deposition and variation of sediment concentration within 1 time 
+    step
     """
     
     if len(dFi_r_dt_prev) == 0:#最初のステップはルンゲクッタ
