@@ -138,13 +138,19 @@ def get_final_deposit(x, C, spoints, deposit):
     Parameters
     ----------
     x: ndarray
-    C: ndarray
+        dimensional spatial coordinate of moving coordinate
+    C: 2d ndarray(cnum, ngrid)
+        sediment concentration
     spoints: ndarray
-    deposit: ndarray
+        fixed spatial coordiate
+    deposit: 2d ndarray(cnum, sp_grid_num)
+        Volume-per-unit-area of each grain-size class
 
     Return
     ----------
-    deposit: 2d ndarray
+    deposit: 2d ndarray(cnum, sp_grid_num)
+        Volume-per-unit-area of each grain-size class after deposition from
+        stagnant flow
     
     """
     h = - H / Rw * spoints + H
@@ -157,60 +163,124 @@ def step(t_hat, x_hat, C, dt, dx, \
                                      deposit,\
                                      Fi_r, detadt, dFi_r_dt_prev, detadt_r_prev):
     """
-    calculate deposition and variation of sediment concentration within 1 time 
-    step
-    """
+    calculate amounts of deposition and variation of transported sediment
+    concentration within one time step
+
+    The two-step Adams-Bashforth Predictor-Corrector method is used for
+    calculation of deposition. The AD-PC method requires values of the first
+    and second steps, so that Runge-Kutta method is used to obtain the second
+    step values.
     
-    if len(dFi_r_dt_prev) == 0:#最初のステップはルンゲクッタ
-        deposit, Fi_r, detadt_r_prev, dFi_r_dt_prev = step_RK(C, deposit, Fi_r, t_hat, x_hat)
+    The implicit Euler method is used for calculation of suspended sediment
+    transport.
 
-    else:#２ステップ目以降はアダムス・バッシュフォースの予測子修正子法
-        Fi_r, deposit, dFi_r_dt_prev, detadt_r_prev = step_AB_PC(C, Fi_r, deposit, t_hat, x_hat, dFi_r_dt_prev, detadt_r_prev)
+    Parameters
+    ----------
+    t_hat: float
+        dimensionless time (1.0 at the end of calculation)
 
-    #濃度の移流に関して陰解法のステップを実行
+    x_hat: float
+        dimensionless spatial coordinate (1.0 at the head of flows)
+
+    C: 2d ndarray(cnum, ngrid)
+        sediment concentration
+
+    dt: float
+        time step length
+
+    dx: float
+        spatial step length in dimensionless space
+
+    deposit: 2d ndarray(cnum, sp_grid_num)
+        Volume-per-unit-area of each grain-size class in a deposit
+
+    Fi_r: 2d ndarray(cnum, sp_grid_num)
+        Fractions of grain-size classes in active layer
+
+    detadt: 2d ndarray(cnum, ngrid)
+        Accumulation rate of each grain-size class
+
+    dFi_r_dt_prev: 2d ndarray
+        Changing rate of fraction of each grain size in active layer at
+        previous time step
+
+    detadt_r_pre: 2d ndarray
+        Accumulation rate of each grain-size class in real space at previous
+        time step
+    
+    Return
+    ---------
+    C_new: 2d ndarray(cnum, ngrid)
+        sediment concentration at next time step
+
+    deposit
+
+    Fi_r
+
+    detadt
+
+    dFi_r_dt_prev
+
+    detadt_r_prev
+
+    """
+
+    #Runge-Kutta method is used only in the case of the first step
+    if len(dFi_r_dt_prev) == 0:
+        deposit, Fi_r, detadt_r_prev, dFi_r_dt_prev =\
+                               step_RK(C, deposit, Fi_r, t_hat, x_hat)
+
+    #AD-PC method is used in the following steps
+    else:
+        Fi_r, deposit, dFi_r_dt_prev, detadt_r_prev =\
+        step_AB_PC(C, Fi_r, deposit, t_hat, x_hat, dFi_r_dt_prev, detadt_r_prev)
+
+    #Advective transport of suspension is calculated by implicit Euler method
     C_new = step_implicit_C(t_hat, x_hat, C, dt, dx, spoints, Fi_r)
     
     return C_new, deposit, Fi_r, detadt, dFi_r_dt_prev, detadt_r_prev
 
 def step_RK(C, deposit, Fi_r, t_hat, x_hat):
     """
-    ルンゲ・クッタ法による実空間でのALayer粒度分布と堆積量の計算
+    Calculation of fraction in active layer and accumulation rate of eac
+    h grain-size class by Runge-Kutta method.
+
     """
     
-    dt_r = T * dt #実座標系でのタイムステップ
+    dt_r = T * dt #time step length in real space
     
-    #水深を求める    
+    #caculate inundation height
     h_max = H * t_hat
     h = - h_max * x_hat + h_max
 
-    #Active Layerの厚さ
+    #calculate thickness of active Layer
     u_star = get_u_star(C,h)
     La = get_La(x_hat, t_hat, u_star)
     
-    #ルンゲ・クッタ第1ステップ
+    #the first step of the Runge-Kutta method
     detadt_r1, detadt_r_sum1 = get_detadt_r(C, Fi_r, t_hat, x_hat)
     k1 = 1 / La * (detadt_r1 - Fi_r * detadt_r_sum1)
     
-    #ルンゲ・クッタ第2ステップ
+    #the second step of the Runge-Kutta method
     Fi_r_k2 = Fi_r + k1 * dt_r / 2
     detadt_r2, detadt_r_sum2 = get_detadt_r(C, Fi_r_k2, t_hat, x_hat)
     k2 = 1 / La * (detadt_r2 - Fi_r_k2 * detadt_r_sum2)
 
-    #ルンゲ・クッタ第3ステップ
+    #the third  step of the Runge-Kutta method
     Fi_r_k3 = Fi_r + k2 * dt_r / 2
     detadt_r3, detadt_r_sum3 = get_detadt_r(C, Fi_r_k3, t_hat, x_hat)
     k3 = 1 / La * (detadt_r3 - Fi_r_k3 * detadt_r_sum3)
     
-    #ルンゲ・クッタ第4ステップ
+    #the fortht step of the Runge-Kutta method
     Fi_r_k4 = Fi_r + k3 * dt_r
     detadt_r4, detadt_r_sum4 = get_detadt_r(C, Fi_r_k4, t_hat, x_hat)
     k4 = 1 / La * (detadt_r4 - Fi_r_k4 * detadt_r_sum4)
     
-    #勾配値
+    #gradient
     dFi_r_dt = (k1 + 2 * k2 + 2 * k3 + k4) / 6
     detadt_r = (detadt_r1 + 2 * detadt_r2 + 2 * detadt_r3 + detadt_r4)/6
     
-    #次回の値の算出    
+    #obtain the next step values
     Fi_r = Fi_r + dt_r * dFi_r_dt
     Fi_r[Fi_r<0.0] = 0
     Fi_r[Fi_r>1.0] = 1.0
