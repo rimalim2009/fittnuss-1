@@ -1,6 +1,5 @@
-# -*- coding: cp932 -*-
 """
-津波堆積物から津波の水理特性を逆解析するためのフォワードモデル ver.1.00
+Forward model for FITTNUSS
 """
 import numpy as np
 from numba.decorators import jit
@@ -12,20 +11,20 @@ import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 import time
 
-Ds = np.array([[354*10**-6],[177*10**-6],[88.4*10**-6]]) # m　混合粒径
-cnum = len(Ds) #粒径区分の階級数
-nu = 1.010 * 10 ** -6 # m^2 / s　動粘性係数（20℃くらい？）
-R = 1.65 #堆積物の水中比重（石英，長石，粘土鉱物はほぼ同じ，沈降管なら問題ない）
-Cf = 0.004 # 1　#摩擦係数（無次元シェジー係数（普通は底面の粒径を使う））
-ngrid = 50 #流れの計算を行う際の空間グリッド数
-sp_grid_num = 100 #堆積物の計算を行う際の空間グリッド数
-lambda_p = 0.4 #堆積物の間隙率
-dt = 0.0001 #時間ステップ幅
-x0 = 10. # m　#津波が10mだけ計算原点（最大層厚点）から進んだところからスタート
-g = 9.81 # m/s^2 重力加速度
+Ds = np.array([[354*10**-6],[177*10**-6],[88.4*10**-6]]) #representative diameters of grain-size classes
+cnum = len(Ds) #number of grain-size classes
+nu = 1.010 * 10 ** -6 #kinetic viscosity of water (m^2 / s)
+R = 1.65 #submerged specific density of water
+Cf = 0.004 # 1　#friction coefficient (dimensionless Chezy coeff.)
+ngrid = 50 #number of grids for transforming coordinate
+sp_grid_num = 100 #number of grids for fixed coordinate
+lambda_p = 0.4 #sediment porocity
+dt = 0.0001 #time step length
+x0 = 10. # m　#initial location of the flow head
+g = 9.81 # m/s^2 gravity acceleration
 
-spoints = [] #m サンプリング地点の座標（海岸線からの距離）
-deposit = [] #各粒径の単位面積当たりの体積
+spoints = [] #m location of sampling points (distance from the coastline)
+deposit = [] #volume-per-unit-area of each grain-size class at each location
 Rw = 0.
 U = 0.
 H = 0.
@@ -35,89 +34,118 @@ ws = []
 
 def read_setfile(configfile):
     """
-    設定ファイル（ファイル名configfile）を読み込んで
-    初期値を設定する
+    A function for parsing a confuguration file to set basic parameters
     """
     global nu, R, Cf, ngrid, sp_grid_num, lambda_p, dt, x0, g, Ds, cnum
     parser = scp()
-    parser.read(configfile)#設定ファイルの読み込み
+    parser.read(configfile)#read a configuration file
 
-    nu = parser.getfloat("Physical variables","nu") # m^2 / s　動粘性係数（20℃くらい？）
-    R = parser.getfloat("Sediments","R") #堆積物の水中比重（石英，長石，粘土鉱物はほぼ同じ，沈降管なら問題ない）
-    Cf = parser.getfloat("Physical variables","Cf")# 1　#摩擦係数（無次元シェジー係数（普通は底面の粒径を使う））
-    ngrid = parser.getint("Calculation","ngrid") #流れの計算を行う際の空間グリッド数
-    sp_grid_num = parser.getint("Calculation","sp_grid_num") #堆積物の計算を行う際の空間グリッド数
-    lambda_p = parser.getfloat("Sediments","lambda_p") #堆積物の間隙率
-    dt = parser.getfloat("Calculation","dt") #時間ステップ幅
-    x0 = parser.getfloat("Calculation","x0") #津波が10mだけ計算原点（最大層厚点）から進んだところからスタート
-    g = parser.getfloat("Physical variables","g") # m/s^2 重力加速度
+    nu = parser.getfloat("Physical variables","nu") #kinematic viscosity
+    R = parser.getfloat("Sediments","R") #submerged spec. density of sediment
+    Cf = parser.getfloat("Physical variables","Cf")#friction coefficient
+    ngrid = parser.getint("Calculation","ngrid") #number of grids for a flow
+    sp_grid_num = parser.getint("Calculation","sp_grid_num") #num of grids
+    lambda_p = parser.getfloat("Sediments","lambda_p") #sediment porocity
+    dt = parser.getfloat("Calculation","dt") #time step length
+    x0 = parser.getfloat("Calculation","x0") #initial location of flow head
+    g = parser.getfloat("Physical variables","g") #gravity acceleration
 
-    Ds_text = parser.get("Sediments","Ds") #文字列の状態で粒径を取得（μm）
-    #文字列を数値配列に変換（カンマ区切り）
+    Ds_text = parser.get("Sediments","Ds") #grain sizes as strings
+    #converting strings of grain diameter to numbers
     Ds_micron = [float(x) for x in Ds_text.split(',') if len(x) !=0]
-    Ds = np.array(Ds_micron) * 10 ** -6 #μmをmに変換
-    Ds = np.array(np.matrix(Ds).T) #転置する
-    cnum = len(Ds) #粒径区分の階級数
+    Ds = np.array(Ds_micron) * 10 ** -6 #converting micron to m
+    Ds = np.array(np.matrix(Ds).T) #transpose the matrix
+    cnum = len(Ds) #number of grain-size classes
 
 def set_spoint_interval(sp_grid_num):
     """
-    層厚データを判定するサンプリングポイント
-    の座標を設定する
+    A function to set locations of sampling points
     """
     global spoints
     spoints = np.linspace(0, Rw, sp_grid_num)
 
 def forward(optim_params):
     """
-    forward model
-    ngrid: 空間グリッド数
-    C0: 上流端での粒径ごとの初期濃度（縦ベクトル）
+    Calculate the forward model
+    the model calculates depositon both from tsunami inundation flow and 
+    stagnant phases of the flow
+    
+    Parameters
+    ----------
+    optim_params: a numpy array
+    
+    Returns
+    -------
+    x: ndarray
+        location of transforming grids of flows
+    C: ndarray (number of grain-size classes, num of trans. grids)
+        sediment concentration at x
+    spoints: ndarray
+        x coordinates for deposits
+    deposit: ndarray (number of grain-size classes, num of trans. grids)
+        volume-per-unit-area of each grain-size class
+
     """
     global deposit
     
-    set_params(optim_params) #初期パラメーターを設定
+    set_params(optim_params) #set initial parameters
 
-    #初期の配列を作る
-    cnum = len(Ds) #粒径区分の階級数
-    x_hat = np.linspace(0, 1.0, ngrid)#仮想空間でのグリッド座標
-    dx = x_hat[1] - x_hat[0]#仮想空間でのグリッド間隔
-    C = C0 * (1.0 - x_hat) #初期濃度分布（仮想空間）
-    deposit = np.zeros((cnum,len(spoints))) #堆積物の厚さ(実空間)
+    #making initial arrays
+    cnum = len(Ds) #number of grain-size classes
+    #spatial coordinates in dimensionless transforming grid (0-1.0) 
+    x_hat = np.linspace(0, 1.0, ngrid)
+    dx = x_hat[1] - x_hat[0]#grid spacing in dimensionless trans. grid
+    C = C0 * (1.0 - x_hat) #initial sed. concentration (dimensionless space)
+    deposit = np.zeros((cnum,len(spoints))) #initial dep. thick. (real space)
     
-    #仮想空間でのアクティブレイヤーの粒度分布
-    #各サンプリング地点におけるActive Layerの粒度分布（実空間）
+    #grain size fractions in active layer on the top of deposit
     Fi_r = np.ones((cnum,len(spoints)))/cnum
-    detadt = np.zeros((cnum,ngrid))#各粒径の堆積速度
-    t_hat = x0 / Rw #無次元時間
-    #前タイムステップでの粒度分布と堆積速度
+    #bed aggradation rate. i.e. \frac{d eta}{dt}
+    detadt = np.zeros((cnum,ngrid))
+    t_hat = x0 / Rw #dimensionless time
+    #arrays to record grain size fractions and agg. rate at previous time step
     dFi_r_dt_prev = []
     detadt_r_prev = []
     
-    Cmax = np.max(C0) #計算の発散チェック用
+    Cmax = np.max(C0) #a variable to check divergence of calculation
 
     while (t_hat < 1.0) and (Cmax < 1.0):
-        t_hat += dt #無次元時間をインクリメントする
-        #1ステップ分の堆積量ならびに濃度変化を計算
+        t_hat += dt #increment the dimensionless time
+        #calculation of 1 time step
         (C, deposit, Fi_r, detadt, dFi_r_dt_prev, detadt_r_prev) =\
             step(t_hat, x_hat, C, dt, dx, \
                                      deposit, \
                                      Fi_r, detadt, dFi_r_dt_prev, detadt_r_prev)
-        #最大濃度を計算→計算の発散をチェック
+        #check divergence of calculation
         Cmax = np.max(np.absolute(C))
 
-    if t_hat < 1.0: #計算が発散した場合の処理
+    if t_hat < 1.0: #abort when calculation diverged
         deposit = deposit / t_hat * 100
         sys.stderr.write('C Exceeded 1.0\n')
 
-    x = Rw * x_hat #座標を実空間に戻す
-    #浮遊砂がすべて流れの停止時に落ちると考えて堆積量を計算
+    x = Rw * x_hat #convert dimensionless coord. to real space
+    #deposition after the termination of flow inundation
     deposit = get_final_deposit(x, C, spoints, deposit)
-    
-    return (x, C, spoints, deposit) #座標,濃度,堆積物の厚さを返す
+
+    #return values of x coord. of flows, concentration, //
+    #    x coord. of real space and deposit thickness
+    return (x, C, spoints, deposit)
 
 def get_final_deposit(x, C, spoints, deposit):
     """
-    遡上流が停止した後の堆積作用
+    calculation of deposition after termination of inundation flow 
+
+    Parameters
+    ----------
+    x: ndarray
+    C: ndarray
+    spoints: ndarray
+    deposit: ndarray
+
+    Return
+    ----------
+    deposit: 2d ndarray
+    
     """
     h = - H / Rw * spoints + H
     f = ip.interp1d(x, C, kind='linear', bounds_error=False, fill_value=0.0)
