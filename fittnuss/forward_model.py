@@ -290,32 +290,37 @@ def step_RK(C, deposit, Fi_r, t_hat, x_hat):
 
 def get_detadt_r(C, Fi_r, t_hat, x_hat):
     """
-    C, Fi_rから実空間スケールでのdetadt_rを求める関数
+    calculate aggradation rates (d \eta_i / dt) in real
+    space (fixed coordinate) from sediment concentration (C)
+    and grain-size distribution in active layer (Fi_r)
     """
-    x = Rw * t_hat * x_hat #実座標に変換
+    x = Rw * t_hat * x_hat #convert from transforming coord. to fixed coord.
     
-    #水深を求める    
+    #get flow height
     h_max = H * t_hat
     h = - h_max * x_hat + h_max
     
-    #摩擦速度を算出
+    #get shear velocity
     u_star = get_u_star(C, h)
     
-    #実空間での粒度分布Fi_rを移動座標系での粒度分布Fiへ変換する
-    f2 = ip.interp1d(spoints, Fi_r, kind='linear', bounds_error=False, fill_value=0.0)
+    #convert g-size distribution in active layer from fixed coordinate (Fi_r)
+    #to transforming coordinate (Fi) by linear interporation
+    f2 = ip.interp1d(spoints, Fi_r, kind='linear', bounds_error=False,\
+                     fill_value=0.0)
     Fi = f2(x)
     Fi[Fi<0] = 0
     Fi[Fi>1] = 1.0
     
-    #堆積物連行係数を計算（移動座標系）
-    Es = get_Es2(h, u_star)
+    #obtaining entrainment rate in transforming coordinate
+    Es = get_Es4(h, u_star)
 
-    #移動座標系での堆積速度detadtを求める
+    #calculate bed aggradation rate (d \eta_i / dt) in transforming coordinate
     r0 = get_r0_corrected(C, Fi, u_star)
     detadt = ws * (r0 * C - Fi * Es) / (1 - lambda_p)
 
     #線形補間でサンプリング点における堆積速度を推定
-    f = ip.interp1d(x, detadt, kind='linear', bounds_error=False, fill_value=0.0)
+    f = ip.interp1d(x, detadt, kind='linear', bounds_error=False,\
+                    fill_value=0.0)
     detadt_r = f(spoints)
     detadt_r[detadt_r<0] = 0
     detadt_r_sum = np.sum(detadt_r, axis=0)#総堆積速度
