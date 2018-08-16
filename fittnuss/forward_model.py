@@ -73,6 +73,7 @@ def forward(optim_params):
     Parameters
     ----------
     optim_params: a numpy array
+       
     
     Returns
     -------
@@ -441,30 +442,54 @@ def step_AB_PC(C, Fi_r, deposit, t_hat, x_hat, dFi_r_dt_prev, detadt_r_prev):
 @jit('f8[:,:](f8,f8[:],f8[:,:],f8,f8,f8[:],f8[:,:])')
 def step_implicit_C(t_hat, x_hat, C, dt, dx, spoints, Fi_r):
     """
-    陰解法によって濃度分布の計算を行うための関数
+    Calculate transport process of suspended sediment by implicit
+    Euler method
+    
+    Parameter
+    ---------
+    t_hat:
+
+    x_hat:
+
+    C:
+
+    dt:
+
+    dx:
+
+    spoints:
+
+    Fi_r:
+
+    Return
+    -------
+    C_new: 2d ndarray
+        Sediment concentration at the next time step
+
     """
     C_new = np.zeros(C.shape)
     C_new[:,0] = C0[:,0]
 
-    #水深を計算    
+    #Obtain flow height
     h_max = H * t_hat
     h = - h_max * x_hat + h_max
     
-    #摩擦速度を算出
+    #calculate shear velocity
     u_star = get_u_star(C, h)
     
-    #線形補間によって次ステップの計算グリッド上での底面粒度分布を求める
-    x = Rw * t_hat * x_hat #移動座標系を実座標に変換
+    #Calculate g.size fraction in active layer at transforming coord. from
+    #those in fixed coord.
+    x = Rw * t_hat * x_hat #get x values in fixed coordinate
     f2 = ip.interp1d(spoints, Fi_r, kind='linear', bounds_error=False, fill_value=0.0)
     Fi = f2(x)
     Fi[Fi<0] = 0
     Fi[Fi>1] = 1.0
     
-    #堆積物の連行係数を計算
-    Es = get_Es2(h, u_star)
-    #Es = get_Es4(h, Fi)
+    #Calculate sediment entrainment rate
+    Es = get_Es4(h, Fi)
     
-    #陰解法により次ステップの濃度分布を計算
+    #Calculate spatial distribution of sediment concentration at the next
+    #time step
     r0 = get_r0_corrected(C, Fi, u_star)
     U_hat = ( 1 - x_hat) / (t_hat) #1D Vector
     r = U_hat * dt / dx #1D Vector
@@ -480,36 +505,37 @@ def step_implicit_C(t_hat, x_hat, C, dt, dx, spoints, Fi_r):
 
 def set_params(optim_params):
     """
-    最適化すべき初期パラメーターを設定する関数
-    [C0, Rw, U, H]という配列を与える
-    C0: 初期濃度
-    Rw: 最大浸水距離
-    U:　津波の鉛直平均流速
-    H: 海岸線での最大浸水深
-    optim_paramsのパラメーター順：
-    0→Rw
-    1→U
-    2→H
-    3以降→各粒度階の初期濃度
+    set initial and boundary conditions used for forward model calculation
+
+    Parameter
+    ---------
+    optim_params: ndarray
+        optim_params are arrays of values as follows
+        [0] Rw: Maximum inundation length
+        [1] U: Inundation flow velocity
+        [2] H: Maximum flow height at the coastline
+        [3], [4], ... C: sediment concentration of each grain-size class at 
+                         the seaward boundary of calculation domain
+
+
     """
     global Rw, U, H, T, C0, ws
     
-    #規格化のための数値
     Rw = optim_params[0]
     U = optim_params[1]
     H = optim_params[2]
     T = Rw / U
 
-    #堆積作用の計算グリッドを与える
+    #Set grid for fixed coordinate
     set_spoint_interval(sp_grid_num)
 
-    #各階級の境界濃度を取得
+    #boundary conditions of suspended sediment concentration at the seaward end
     C0 = np.zeros((cnum,1))
     for i in range(cnum):
         C0[i] = optim_params[3 + i]
     
 
-    #沈降速度
+    #Settling velocity
     ws = get_settling_vel(Ds, nu, g, R)
 
 
