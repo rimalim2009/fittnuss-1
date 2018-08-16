@@ -245,6 +245,28 @@ def step_RK(C, deposit, Fi_r, t_hat, x_hat):
     Calculation of fraction in active layer and accumulation rate of eac
     h grain-size class by Runge-Kutta method.
 
+    Parameters
+    ----------
+    C:
+
+    deposit:
+
+    Fi_r:
+
+    t_hat:
+
+    x_hat:
+
+    Return
+    ----------
+    deposit:
+
+    Fi_r:
+
+    detadt_r:
+
+    dFi_r_dt:
+
     """
     
     dt_r = T * dt #time step length in real space
@@ -293,6 +315,23 @@ def get_detadt_r(C, Fi_r, t_hat, x_hat):
     calculate aggradation rates (d \eta_i / dt) in real
     space (fixed coordinate) from sediment concentration (C)
     and grain-size distribution in active layer (Fi_r)
+    
+    Parameter
+    ------------
+    C:
+
+    Fi_r:
+
+    t_hat:
+
+    x_hat:
+
+    Return
+    ------------
+    detadt_r:
+
+    detadt_r_sum:
+
     """
     x = Rw * t_hat * x_hat #convert from transforming coord. to fixed coord.
     
@@ -318,51 +357,79 @@ def get_detadt_r(C, Fi_r, t_hat, x_hat):
     r0 = get_r0_corrected(C, Fi, u_star)
     detadt = ws * (r0 * C - Fi * Es) / (1 - lambda_p)
 
-    #線形補間でサンプリング点における堆積速度を推定
+    #convert g-size distribution in active layer from trans. coordinate (Fi)
+    #to fixed coordinate (Fi_r)
     f = ip.interp1d(x, detadt, kind='linear', bounds_error=False,\
                     fill_value=0.0)
     detadt_r = f(spoints)
     detadt_r[detadt_r<0] = 0
-    detadt_r_sum = np.sum(detadt_r, axis=0)#総堆積速度
+    detadt_r_sum = np.sum(detadt_r, axis=0)#total bed aggradation rate
     
     return detadt_r, detadt_r_sum
 
 def step_AB_PC(C, Fi_r, deposit, t_hat, x_hat, dFi_r_dt_prev, detadt_r_prev):
     """
-    2次のアダムス・バッシュフォースの予測子修正子法で粒度分布と堆積量を求める
+    Calculation of fraction in active layer and accumulation rate of
+    each grain-size class by two-step Adams-Bashforth Predictor-Corrector
+    method
+
+    Parameters
+    ----------
+    C:
+
+    deposit:
+
+    Fi_r:
+
+    t_hat:
+
+    x_hat:
+
+    Return
+    ----------
+    deposit:
+
+    Fi_r:
+
+    detadt_r:
+
+    dFi_r_dt:
+
+    calculate 
+
     """
+    #convert time step length from dimensionless to dimensional value
+    dt_r = dt * T 
     
-    dt_r = dt * T #実時間に変換
-    
-    #水深を求める    
+    #get flow height
     h_max = H * t_hat
     h = - h_max * x_hat + h_max
     
-    #Active Layerの厚さ
+    #calculate thickness of active Layer
     u_star = get_u_star(C,h)
     La = get_La(x_hat, t_hat, u_star)
         
-    #現時刻での堆積速度
+    #sed. accumulation rates at present time
     detadt_r, detadt_r_sum = get_detadt_r(C, Fi_r, t_hat, x_hat)
     
-    #現時刻でのアクティブレイヤー粒度分布変化率
+    #changing rates of g.size fraction in active layer at present time
     dFi_r_dt = 1 / La * (detadt_r - Fi_r * detadt_r_sum)
     
-    #予測子
+    #Predictor
     Fi_rp = Fi_r + dt_r * (1.5 * dFi_r_dt - 0.5 * dFi_r_dt_prev)
     depositp = deposit + dt_r * (1.5 * detadt_r - 0.5 * detadt_r_prev)
     
-    #予測子の示す未来の堆積速度
+    #sed. accumulation rate obtained by predictor
     detadt_rp, detadt_r_sump = get_detadt_r(C, Fi_rp, t_hat, x_hat)
     
-    #予測子の示す未来のアクティブレイヤー粒度分布変化率
+    #changing rate of g.size fraction in active layer (predictor)
     dFi_r_dtp = 1 / La * (detadt_rp - Fi_rp * detadt_r_sump)
     
-    #修正子
+    #Corrector
     Fi_rc = Fi_r + dt_r * (1.5 * dFi_r_dtp - 0.5 * dFi_r_dt)
     depositc = deposit * dt_r * (1.5 * detadt_rp - 0.5 * detadt_r)
     
-    #解
+    #solution
     Fi_r = 1 / 2 * (Fi_rp + Fi_rc)
     Fi_r[Fi_r<0.0] = 0
     Fi_r[Fi_r>1.0] = 1.0
