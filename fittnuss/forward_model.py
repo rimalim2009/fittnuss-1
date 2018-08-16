@@ -15,12 +15,12 @@ Ds = np.array([[354*10**-6],[177*10**-6],[88.4*10**-6]]) #representative diamete
 cnum = len(Ds) #number of grain-size classes
 nu = 1.010 * 10 ** -6 #kinetic viscosity of water (m^2 / s)
 R = 1.65 #submerged specific density of water
-Cf = 0.004 # 1　#friction coefficient (dimensionless Chezy coeff.)
+Cf = 0.004 #friction coefficient (dimensionless Chezy coeff.)
 ngrid = 50 #number of grids for transforming coordinate
 sp_grid_num = 100 #number of grids for fixed coordinate
 lambda_p = 0.4 #sediment porocity
 dt = 0.0001 #time step length
-x0 = 10. # m　#initial location of the flow head
+x0 = 10. # m initial location of the flow head
 g = 9.81 # m/s^2 gravity acceleration
 
 spoints = [] #m location of sampling points (distance from the coastline)
@@ -352,7 +352,7 @@ def get_detadt_r(C, Fi_r, t_hat, x_hat):
     Fi[Fi>1] = 1.0
     
     #obtaining entrainment rate in transforming coordinate
-    Es = get_Es4(h, u_star)
+    Es = get_Es4(h, Fi, u_star)
 
     #calculate bed aggradation rate (d \eta_i / dt) in transforming coordinate
     r0 = get_r0_corrected(C, Fi, u_star)
@@ -486,7 +486,7 @@ def step_implicit_C(t_hat, x_hat, C, dt, dx, spoints, Fi_r):
     Fi[Fi>1] = 1.0
     
     #Calculate sediment entrainment rate
-    Es = get_Es4(h, Fi)
+    Es = get_Es4(h, Fi, u_star)
     
     #Calculate spatial distribution of sediment concentration at the next
     #time step
@@ -540,7 +540,29 @@ def set_params(optim_params):
 
 
 def get_La(x_hat,t_hat, u_star):
-    x = Rw * t_hat * x_hat #移動座標系を実座標に変換
+    """
+    Get thickness of active layer
+    
+    Parameter
+    ----------
+    x_hat: ndarray
+        dimensionless x coordinate of transforming grid
+
+    t_hat: float
+        dimensinless time
+
+    u_star: ndarray
+        shear velocity
+    
+    Return
+    ----------
+    La: float
+        active layer thickness
+
+    """
+    
+    #convert transforming coord. to fixed coord.
+    x = Rw * t_hat * x_hat 
     f2 = ip.interp1d(x, u_star, kind='linear', bounds_error=False, fill_value=0.0)
     u_star_r = f2(spoints)
     La = np.ones(len(u_star_r))
@@ -549,11 +571,11 @@ def get_La(x_hat,t_hat, u_star):
 
 def get_settling_vel(D, nu, g, R):
     """
-    堆積物の沈降速度を計算する関数
+    Get settling velocity of sediment particles based on
     Dietrich et al. (1982)
     """
         
-    Rep = (R * g * D) ** 0.5 * D / nu; #粒子レイノルズ数
+    Rep = (R * g * D) ** 0.5 * D / nu; #particle Reynolds number
     b1 = 2.891394; b2 = 0.95296; b3 = 0.056835; b4 = 0.002892; b5 = 0.000245
     Rf = np.exp(-b1 + b2 * np.log(Rep) - b3 * np.log(Rep) ** 2 - b4 * np.log(Rep) ** 3 + b5 * np.log(Rep) ** 4)
     ws = Rf * (R * g * D) ** 0.5
@@ -562,7 +584,7 @@ def get_settling_vel(D, nu, g, R):
 
 def get_r0(u_star):
     """
-    底面近傍濃度/鉛直平均濃度比
+    Get ratio of near-bed to layer average concentraton on the basis of
     Parker (1982)
     """
     r0 = 1 + 31.5 * (u_star / ws) ** (-1.46)
@@ -571,7 +593,7 @@ def get_r0(u_star):
 
 def get_Es(u_star):
     """
-    Sediment Entrainment Functionを計算する関数
+    Sediment Entrainment Function of
     Garcia and Parker (1991)
     """
     p = 0.1
@@ -589,7 +611,7 @@ def get_Es(u_star):
 
 def get_Es2(h, u_star):
     """
-    Sediment Entrainment Functionを計算する関数
+    Sediment Entrainment Function of 
     Wright and Parker (2004)
     """
     p = 0.1
@@ -609,7 +631,7 @@ def get_Es2(h, u_star):
     
 def get_Es3(u_star):
     """
-    Sediment Entrainment Function
+    Sediment Entrainment Function of
     Dufois and Hur (2015)
     """
     
@@ -629,7 +651,7 @@ def get_Es3(u_star):
 
 def get_Es4(h, Fi, u_star):
     """
-    Sediment Entrainment Function
+    Sediment Entrainment Function of
     van Rijn (1984)
     """
     
@@ -650,53 +672,30 @@ def get_Es4(h, Fi, u_star):
 #@jit('f8[:](f8[:,:],f8[:])')
 def get_u_star(C, h):
     """
-    Friction Velocityを計算する関数
+    get shear (friction)  Velocity
     """
-#    alpha = 0.1
-#    K = np.ones(ngrid) * Cf * U ** 2 / alpha  #Kの初期値
-#    #K = np.zeros(ngrid)
-#    
-#    for i in range(3):
-#        fk = fK(K,C,h)
-#        fkprime = fKprime(K)
-#        K = - fk / fkprime + K
-#        
-#    u_star = np.sqrt(alpha * K)
 
     u_star = np.ones(ngrid) * Cf ** 0.5 * U
     return u_star
 
-def fK(K, C, h):
-    """
-    Kを求める方程式
-    """
-    alpha = 0.1
-    fk = - alpha ** (3/2) * Cf ** (-0.5) / U * K ** (3/2) + alpha * K \
-         - np.sum(R * g * ws * C * h / U, axis=0)
-    
-    return fk
-    
-def fKprime(K):
-    """
-    Kを求める方程式の勾配
-    """
-    alpha = 0.1
-    fkprime = - (3/2) * alpha ** (3/2) * Cf ** (-0.5) / U * K ** 0.5 + alpha
-    
-    return fkprime
 
 def export_result(filename1, filename2):
     """
-    サンプルデータを作るためのルーチン
+    Export results of the forward model calculation
+    This function can be used for producing synthetic data
     """
     np.savetxt(filename1, spoints, delimiter=',')
     np.savetxt(filename2, deposit, delimiter=',')
 
 def plot_result(C, deposit):
-    x_hat = np.linspace(0, 1.0, ngrid)#仮想空間でのグリッド座標
-    x = x_hat * Rw#実座標
+    """
+    Plot calculated thickness distribution and sediment concentration
     
-    #層厚のプロット
+    """
+    x_hat = np.linspace(0, 1.0, ngrid)# x coordinate in transforming grid
+    x = x_hat * Rw#x coordinate in real space
+    
+    #Plot thickness distribution
     plt.subplot(2,1,1)
     for i in range(cnum):
         d = Ds[i].tolist()[0]*10**6
@@ -708,7 +707,7 @@ def plot_result(C, deposit):
     plt.xlim(0,spoints[-1])
     plt.legend()
 
-    #濃度のプロット
+    #Plot spatial distribution of sediment concentration
     plt.subplot(2,1,2)
     for i in range(cnum):
         d = Ds[i].tolist()[0]*10**6
@@ -724,17 +723,17 @@ def plot_result(C, deposit):
     
 def plot_result_thick(spointfilename, depfilenames, labels, symbollist):
     """
-    結果のデータを層厚および粒度分布という形で表示する関数
+    Plot calculated thickness distribution
     """    
     
-    #データをdepositlistに読み込む
+    #read data to the variable depositlist
     depositlist = []
     spoints=np.loadtxt(spointfilename,delimiter=",")
     for i in depfilenames:
         dep = np.loadtxt(i,delimiter=",")
         depositlist.append(dep)
     
-    #プロットの書式を整える
+    #format the plot area
     plt.figure(num=None, figsize=(7, 2), dpi=150, facecolor='w', edgecolor='k')
     fp = FontProperties(size=9)
     plt.rcParams["font.size"] = 9
@@ -752,22 +751,24 @@ def plot_result_thick(spointfilename, depfilenames, labels, symbollist):
     plt.show()
 
 def plot_result_gdist(spointfilename, depfilenames, labels, gsizelabels, loc, symbollist):
+    """
+    Plot calculated grain-size distribution of a deposit
+    """
     
-    #データをdepositlistに読み込む
+    #read dataset to the variable depositlist
     spoints=np.loadtxt(spointfilename,delimiter=",")
     depositlist = []
     for i in depfilenames:
         dep = np.loadtxt(i,delimiter=",")
         depositlist.append(dep)
 
-    #粒度分布のプロット
-    #プロットの書式を整える
+    #formatting plot area
     plt.figure(num=None, figsize=(7, 2), dpi=150, facecolor='w', edgecolor='k')
     plt.subplots_adjust(left=0.1, bottom=0.21, right=0.82, top=0.85, wspace=0.25, hspace=0.2)
     fp = FontProperties(size=9)
     plt.rcParams["font.size"] = 9
 
-    #３地点でのプロットをおこなう
+    #Plot grain-size distribution at 3 locations
     for i in range(3):
         plt.subplot(1,3,i+1)
         gdist = np.zeros(len(gsizelabels))
@@ -787,9 +788,9 @@ def plot_result_gdist(spointfilename, depfilenames, labels, gsizelabels, loc, sy
     
 def get_r0_corrected(C, Fi, u_star):
     """
-    底面近傍濃度/鉛直平均濃度比
-    Rouse Distributionに
-    van Rijn (1984)の補正を加える
+    Get ratio of near-bed to layer-averaged concentration
+    This function assumes that suspended load follows Rouse distribution
+    with correction of density stratification proposed by van Rijn (1984)
     """
 
     Z = ws / u_star / 0.4
@@ -804,14 +805,14 @@ def get_r0_corrected(C, Fi, u_star):
 
 def convert_manningn2Cf(n, h):
     """
-    Manning's nを摩擦係数Cfに変換する関数
+    Convert the Manning's n to friction coefficient to Manning's n
     """
     Cf = n ** 2 / h ** (1/3) * g
     return Cf
     
 def convert_Cf2manningn(Cf, h):
     """
-    摩擦係数CfをManning's nに変換する関数
+    Convert the friction coefficient Cf to the Manning's n
     """
     n = h ** (1/6) * np.sqrt(Cf / g)
     return n
