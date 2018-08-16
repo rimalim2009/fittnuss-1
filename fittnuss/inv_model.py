@@ -1,4 +1,3 @@
-# -*- coding: cp932 -*-
 import numpy as np
 from scipy import interpolate as ip
 import forward_model as fmodel
@@ -7,9 +6,9 @@ import scipy.optimize as opt
 import matplotlib.pyplot as plt
 from configparser import ConfigParser as scp
 
-Nfeval = 1 #最適化計算ステップ数
-deposit_o = [] #観察された堆積物の厚さ
-spoints = [] #サンプリングポイントの座標
+Nfeval = 1 #number of epochs in optimization calculation
+deposit_o = [] #Observed thickness of a tsunami deposit
+spoints = [] #Location of sampling points
 observation_x_file=[]
 observation_deposit_file=[]
 inversion_result_file=[]
@@ -20,31 +19,32 @@ bound_values = []
 
 def read_setfile(configfile):
     """
-    設定ファイル（ファイル名configfile）を読み込んで
-    初期値を設定する
+    read setting file (config.ini) and set parameters to the inverse model
     """
     global observation_x_file, observation_deposit_file, inversion_result_file, inversion_x_file, inversion_deposit_file, initial_params, bound_values
     parser = scp()
-    parser.read(configfile)#設定ファイルの読み込み
+    parser.read(configfile)#read a setting file
 
+    #set file names
     observation_x_file = parser.get("Import File Names", "observation_x_file")
     observation_deposit_file = parser.get("Import File Names", "observation_deposit_file")
     inversion_result_file = parser.get("Export File Names", "inversion_result_file")
     inversion_x_file = parser.get("Export File Names", "inversion_x_file")
     inversion_deposit_file = parser.get("Export File Names", "inversion_deposit_file")
 
-    #初期値の読み込み
+    #Set starting values
     Rw0 = parser.getfloat("Inversion Options", "Rw0")
     U0 = parser.getfloat("Inversion Options", "U0")
     h0 = parser.getfloat("Inversion Options", "h0")
     C0_text = parser.get("Inversion Options", "C0")
-    #文字列を数値配列に変換（カンマ区切り）
+
+    #Convert strings (comma separated) to float
     C0 = [float(x) for x in C0_text.split(',') if len(x) !=0]
     initial_params = [Rw0, U0, h0]
     initial_params.extend(C0)
     initial_params = np.array(initial_params)
 
-    #求める値の範囲を読み込む
+    #Set ranges of possible solutions
     Rwmax = parser.getfloat("Inversion Options", "Rwmax")
     Rwmin = parser.getfloat("Inversion Options", "Rwmin")
     Umax = parser.getfloat("Inversion Options", "Umax")
@@ -60,14 +60,18 @@ def read_setfile(configfile):
         bound_values_list.append((Cmin[i],Cmax[i]))
     bound_values = tuple(bound_values_list)
     
-    #フォワードモデルにも設定を反映させる
+    #Set the variales in the forward model
     fmodel.read_setfile(configfile)
 
 
 
 def costfunction(optim_params):
     """
-    計測値と計算値のズレを定量化
+    Calculate objective function that quantifies the difference between
+    field observations and results of the forward model calculation
+
+    Fist, this function runs the forward model using a given set of parameters.
+    Then, the mean square error of results was calculated.
     """
     (x, C, x_dep, deposit_c) = fmodel.forward(optim_params)
     f = ip.interp1d(spoints, deposit_o, kind='cubic', bounds_error=False, fill_value=0.0)
@@ -79,16 +83,18 @@ def costfunction(optim_params):
 
 def optimization(initial_params, bound_values, disp_init_cost=True, disp_result=True):
     """
-    initial_paramsから出発して最適化計算を行う．
-    上限値と下限値はbound_valuesで指定
-    観測値に最も適合する結果を出すパラメーターを出力する
+    Calculate parameter set that minimize the objective function (cost function)
+    Optimization is started at the starting values (initial_params). The 
+    L-BFGS-B method was used for optimization with parametric boundaries defined
+    by bound_values
+
     """
     if disp_init_cost:
-        #当初のcostfunctionを計算
+        #show the value of objective function at the starting values
         cost = costfunction(initial_params)
         print('Initial Cost Function = ', cost, '\n')
     
-    #最適化計算を行う
+    #Start optimization by L-BFGS-B method
     t0 = tm.clock()
     res = opt.minimize(costfunction, initial_params, method='L-BFGS-B',\
     #res = opt.minimize(imodel.costfunction, optim_params, method='CG',\
@@ -96,7 +102,7 @@ def optimization(initial_params, bound_values, disp_init_cost=True, disp_result=
                    options={'disp': True})
     print('Elapsed time for optimization: ', tm.clock() - t0, '\n')
 
-    #計算結果を表示する
+    #Display result of optimization
     if disp_result:
         print('Optimized parameters: ')
         print(res.x)
@@ -105,11 +111,11 @@ def optimization(initial_params, bound_values, disp_init_cost=True, disp_result=
 
 def readdata(spointfile, depositfile):
     """
-    データの読み込みを行う
+    Read measurement dataset
     """
     global deposit_o, spoints
     
-    #データをセットする
+    #Set variables from data files
     spoints = np.loadtxt(spointfile, delimiter=',')
     deposit_o = np.loadtxt(depositfile, delimiter=',')
     
@@ -117,29 +123,29 @@ def readdata(spointfile, depositfile):
 
 def save_result(resultfile, spointfile, depositfile, res):
     """
-    逆解析結果を保存する
+    Save the inversion results
     """
-    #Forward Modelを計算
+    #Calculate the forward model using the inversion result
     (x, C, x_dep, deposit_c) = fmodel.forward(res.x)
 
-    #最適解を保存
+    #Save the best result
     fmodel.export_result(spointfile, depositfile)
     np.savetxt(resultfile, res.x)
     
 
 def callbackF(x):
     """
-    途中経過の表示
+    A function to display progress of optimization
     """
     global Nfeval
     print('{0: 3d}  {1: 3.0f}   {2: 3.2f}   {3: 3.2f}   {4: 3.3f}    {5: 3.6f}'.format(Nfeval, x[0], x[1], x[2], x[3], costfunction(x)))
     Nfeval +=1
 
 def plot_result(res):
-    (x, C, x_dep, deposit_c) = fmodel.forward(res.x) #最適解を計算
-    cnum = fmodel.cnum #粒度階の数を取得
+    (x, C, x_dep, deposit_c) = fmodel.forward(res.x) #Calculate optimized result
+    cnum = fmodel.cnum #Number of grain-size classes
     for i in range(cnum):
-        plt.subplot(cnum,1,i+1) #粒度階の数だけグラフを準備
+        plt.subplot(cnum,1,i+1) #Prepare plot of each grain-size class
         plt.plot(spoints, deposit_o[i,:], marker = 'x', linestyle = 'None', label = "Observation")
         plt.plot(x_dep, deposit_c[i,:], marker = 'o', fillstyle='none', linestyle = 'None', label = "Calculation")
         plt.xlabel('Distance from the shoreline (m)')
@@ -154,21 +160,22 @@ def plot_result(res):
 
 def inv_multistart():
     """
-    マルチスタート法による逆解析を行う
+    Perform inversion using the multi-start method
     """
     
-    #初期値と上限・下限を設定
+    #Set initial conditions
     read_setfile('config.ini') 
 
-    #観測データを読み込む
-    (spoints, deposit_o) = readdata(observation_x_file, observation_deposit_file) #観測データを読み込む
+    #Read measurement data set
+    (spoints, deposit_o) = readdata(observation_x_file,\
+                                    observation_deposit_file)
     
-    #初期値のリストを設定    
+    #Set a list of starting values
     initU = [2, 4, 6]
     initH = [2, 5, 8]
     initC = [[0.001, 0.001, 0.001,0.001], [0.004, 0.004, 0.004,0.004], [0.01, 0.01, 0.01, 0.01]]
     
-    #逆解析を行うための初期値のリストを作る
+    #Make a list of sets of starting values
     res = []
     initparams = []
     for i in range(len(initU)):
@@ -178,28 +185,29 @@ def inv_multistart():
                 init.extend(initC[k])
                 initparams.append(init)
 
-    #複数の初期値で逆解析を行う
+    #Perform inversion using multiple starting values
     for l in range(len(initparams)):
         res.append(optimization(initparams[l], bound_values))
     
     return res, initparams
 
 if __name__=="__main__":
-#    #初期値と上限・下限を設定
-#    read_setfile('config_sendai.ini') 
-#
-#    #観測データを読み込む
-#    (spoints, deposit_o) = readdata(observation_x_file, observation_deposit_file) #観測データを読み込む
-#
-#    #最適化計算を行う
-#    res = optimization(initial_params, bound_values)
-#
-#    #結果を保存する
-#    save_result(inversion_result_file, inversion_x_file, inversion_deposit_file, res)
-#
-#    #結果を表示
-#    plot_result(res)
+    #Set initial conditions of inverse model
+    read_setfile('config_sendai.ini') 
 
-    res, initparams = inv_multistart()
-    print(initparams)
-    print(res)
+    #Read measurement data set
+    (spoints, deposit_o) = readdata(observation_x_file,\
+                                    observation_deposit_file)
+
+    #Conduct optimization
+    res = optimization(initial_params, bound_values)
+
+    #Save the reuslt of inversion
+    save_result(inversion_result_file, inversion_x_file, inversion_deposit_file, res)
+
+    #Plot results
+    plot_result(res)
+
+#    res, initparams = inv_multistart()
+#    print(initparams)
+#    print(res)
