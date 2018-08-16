@@ -318,12 +318,13 @@ def get_detadt_r(C, Fi_r, t_hat, x_hat):
     r0 = get_r0_corrected(C, Fi, u_star)
     detadt = ws * (r0 * C - Fi * Es) / (1 - lambda_p)
 
-    #線形補間でサンプリング点における堆積速度を推定
+    #convert bed aggradation rate in transforming coordinate to
+    #fixed coordinate by linear interporation
     f = ip.interp1d(x, detadt, kind='linear', bounds_error=False,\
                     fill_value=0.0)
     detadt_r = f(spoints)
     detadt_r[detadt_r<0] = 0
-    detadt_r_sum = np.sum(detadt_r, axis=0)#総堆積速度
+    detadt_r_sum = np.sum(detadt_r, axis=0)#total bed aggradation rate
     
     return detadt_r, detadt_r_sum
 
