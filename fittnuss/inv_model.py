@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import interpolate as ip
-import forward_model as fmodel
+from fittnuss import forward_model as fmodel
 import time as tm
 import scipy.optimize as opt
 import matplotlib.pyplot as plt

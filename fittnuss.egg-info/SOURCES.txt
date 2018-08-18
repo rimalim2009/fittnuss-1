@@ -1,0 +1,12 @@
+LICENSE
+MANIFEST.in
+README.rst
+setup.py
+fittnuss/__init__.py
+fittnuss/forward_model.py
+fittnuss/inv_model.py
+fittnuss.egg-info/PKG-INFO
+fittnuss.egg-info/SOURCES.txt
+fittnuss.egg-info/dependency_links.txt
+fittnuss.egg-info/requires.txt
+fittnuss.egg-info/top_level.txt
