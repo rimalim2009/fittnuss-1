@@ -502,7 +502,18 @@ def step_implicit_C(t_hat, x_hat, C, dt, dx, spoints, Fi_r):
         C_new[:,i] = (C[:,i] + r[i] * C_new[:,i-1] + A[:,i]) / B[:,i]
 
     return C_new
+
+def get_r0_soulsby(C):
+    """
+    Get r0 for simulating Soulsby's model
+    """
+    r0 = np.zeros(C.shape)
+    C0dummy = C0 * np.ones(C.shape)
+    r0[C>0.000001] = C0dummy[C>0.000001] / C[C>0.000001]
     
+    return r0
+    
+
 
 def set_params(optim_params):
     """
@@ -693,35 +704,58 @@ def plot_result(C, deposit):
     Plot calculated thickness distribution and sediment concentration
     
     """
-    x_hat = np.linspace(0, 1.0, ngrid)# x coordinate in transforming grid
-    x = x_hat * Rw#x coordinate in real space
+    x_hat = np.linspace(0, 1.0, ngrid)#grid in transforming coordinate
+    x = x_hat * Rw#x coord in fixed coordinate
+    
+    #Formatting plot area
+    plt.figure(num=None, figsize=(7, 4), dpi=150, facecolor='w', edgecolor='k')
+    plt.subplots_adjust(left=0.10, bottom=0.21, right=0.8, top=0.85, wspace=0.25, hspace=0.2)
+    fp = FontProperties(size=9)
+    plt.rcParams["font.size"] = 9
+
+    #Line styles
+    markerstyle = ['*', 'o', 'd','x', '+', '<', '|', '8', 1, 6, 's', 'p', ',', '^', 'D','H', '3', '>', 'h', 'v', '1']
+    lstylelist = [':', '-', '--','-.']
     
     #Plot thickness distribution
     plt.subplot(2,1,1)
     for i in range(cnum):
         d = Ds[i].tolist()[0]*10**6
         labelname = '{0:.0f} $\mu$m'.format(d)
-        plt.plot(spoints, deposit[i,:], 'o', label=labelname)
-    plt.plot(spoints, np.zeros(spoints.shape),'-', label='Original Surface')
-    plt.xlabel('Distance from the shoreline (m)')
+        #plt.plot(spoints, deposit[i,:], markevery = 10,\
+        #    marker = markerstyle[i], linestyle = '-', color = 'k',\
+        #    label=labelname,linewidth=0.75)
+        #plt.plot(spoints, deposit[i,:], markevery = 10,\
+        #    marker = markerstyle[i], linestyle = '-', label=labelname,\
+        #    linewidth=0.75)
+        plt.plot(spoints, deposit[i,:], linestyle = lstylelist[i],\
+                 label=labelname,linewidth=1.0)
+    plt.xlabel('Distance (m)')
     plt.ylabel('Deposit Thickness (m)')
+    #plt.yscale("log")#set y axis to log scale
     plt.xlim(0,spoints[-1])
-    plt.legend()
+    plt.ylim(10**-3,np.max(deposit))
+    plt.legend(prop = fp, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0)
 
     #Plot spatial distribution of sediment concentration
     plt.subplot(2,1,2)
     for i in range(cnum):
         d = Ds[i].tolist()[0]*10**6
         labelname = '{0:.0f} $\mu$m'.format(d)
-        plt.plot(x, C[i,:]*100., '-', label=labelname)
-    plt.xlabel('Distance from the shoreline (m)')
+        #plt.plot(x, C[i,:]*100., marker = markerstyle[i],\
+        #    markevery = 2, linestyle = 'none', color= 'k', label=labelname,\
+        #     linewidth=0.75)
+        plt.plot(x, C[i,:]*100., linestyle = lstylelist[i], label=labelname,\
+                 linewidth=1.0)
+    plt.xlabel('Distance (m)')
     plt.ylabel('Concentration (%)')
+    plt.yscale("log")#Set y axis to log scale
     plt.xlim(0,spoints[-1])
-    plt.legend()
-
+    plt.ylim(10**-2,np.max(C*100))
+    plt.legend(prop = fp, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0)
     
     plt.show()
-    
+
 def plot_result_thick(spointfilename, depfilenames, labels, symbollist):
     """
     Plot calculated thickness distribution
@@ -742,16 +776,19 @@ def plot_result_thick(spointfilename, depfilenames, labels, symbollist):
     plt.subplot(1,1,1)
     for i in range(len(depfilenames)):
         totalthick = np.sum(depositlist[i],axis=0).T
-        plt.plot(spoints, totalthick, symbollist[i], color = "k", linewidth=0.75,label=labels[i])
+        plt.plot(spoints, totalthick, symbollist[i], color = "k",\
+                 linewidth=0.75,label=labels[i])
     plt.xlabel('Distance from the shoreline (m)')
     plt.ylabel('Deposit Thickness (m)')
     #plt.xlim(0,x[-1])
-    #plt.legend(prop = fp, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0)
+    #plt.legend(prop = fp, bbox_to_anchor=(1.05, 1), loc='upper left',\
+    #    borderaxespad=0)
     plt.legend(prop = fp, loc='best', borderaxespad=1)
     plt.tight_layout()
     plt.show()
 
-def plot_result_gdist(spointfilename, depfilenames, labels, gsizelabels, loc, symbollist):
+def plot_result_gdist(spointfilename, depfilenames, labels,\
+                      gsizelabels, loc, symbollist):
     """
     Plot calculated grain-size distribution of a deposit
     """
@@ -806,7 +843,7 @@ def get_r0_corrected(C, Fi, u_star):
 
 def convert_manningn2Cf(n, h):
     """
-    Convert the Manning's n to friction coefficient to Manning's n
+    Convert the Manning's n to friction coefficient 
     """
     Cf = n ** 2 / h ** (1/3) * g
     return Cf
@@ -818,6 +855,41 @@ def convert_Cf2manningn(Cf, h):
     n = h ** (1/6) * np.sqrt(Cf / g)
     return n
 
+def plot_multiple_thickdata():
+    """
+    plot multiple dataset of thickness distribution
+    """
+    spointfilename = 'sampling_point.txt'
+#    flist = ["U2.5b.txt", "U3.5b.txt","U4.5b.txt", "U5.5b.txt"]
+#    flist = ["h4.0.txt", "h6.0.txt","h8.0.txt"]
+    flist = ["C0.3.txt", "C0.4.txt","C0.5.txt"]
+#    flist = ["n0.02.txt", "n0.03.txt","n0.04.txt"]
+#    flist = ["sample_calc_sub.txt","sample_calc.txt"]
+#    llist = ["van Rijn (1984)", "van Rijn (1984) $\\times$ 1.5","Wright and Parker (2004)"]
+#    llist = ["This Study", "No Turbulent Mixing", "Perfect Vertical Mixing", "No Turbulence Suppression"]
+#    llist = ["$L_a \\times 0.1$", "$L_a \\times 1.0$", "$L_a \\times 10$"]
+#    llist = ["$n = 0.02$", "$n = 0.03$","$n = 0.04$"]
+#    llist = ["$U = 2.5$ m/s", "$U = 3.5$ m/s", "$U = 4.5$ m/s", "$U = 5.5$ m/s"]
+    llist = ["$C_i = 0.3$%", "$C_i = 0.4$%", "$C_i = 0.5$%"]
+    glist = [0.7, 1.3, 1.9, 2.5, 3.1, 3.7]
+    loc = [10, 35, 74]
+    symbollist = ['-','-.',':', '--', ' ']
+    #symbollist = [':', '-', '--','-.']
+    plot_result_thick(spointfilename, flist, llist, symbollist)
+    plot_result_gdist('sampling_point.txt', flist, llist, glist, loc,\
+                      symbollist)
+
+def test_calc():
+    """
+    Sample calculation
+    """
+    read_setfile("config.ini")
+    parameters = [3000, 3.0, 6.0, 0.005, 0.005, 0.005, 0.005]
+    start = time.time()
+    (x, C, x_dep, deposit) = forward(parameters)
+    print(time.time() - start, " sec.")
+    export_result('sampling_point.txt', 'C0.5.txt')
+    plot_result(C, deposit)
 
 
 if __name__ == "__main__":
