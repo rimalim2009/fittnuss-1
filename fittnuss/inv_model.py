@@ -1,10 +1,11 @@
 import numpy as np
 from scipy import interpolate as ip
-from fittnuss import forward_model as fmodel
+import forward_model as fmodel
 import time as tm
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
 from configparser import ConfigParser as scp
+from matplotlib.font_manager import FontProperties
 
 Nfeval = 1 #number of epochs in optimization calculation
 deposit_o = [] #Observed thickness of a tsunami deposit
@@ -13,9 +14,12 @@ observation_x_file=[]
 observation_deposit_file=[]
 inversion_result_file=[]
 inversion_x_file=[]
+inversion_ofunction_file=[]
+inversion_startvalues_file=[]
 inversion_deposit_file=[]
-initial_params = []
 bound_values = []
+start_params = []
+
 
 def read_setfile(configfile):
     """
@@ -101,7 +105,7 @@ def costfunction(optim_params):
     cost = np.sum((residual) ** 2)
     return cost
 
-def optimization(initial_params, bound_values, disp_init_cost=True, disp_result=True):
+def optimization(start_params, bound_values, disp_init_cost=True, disp_result=True):
     """
     Calculate parameter set that minimize the objective function (cost function)
     Optimization is started at the starting values (initial_params). The 
@@ -111,12 +115,12 @@ def optimization(initial_params, bound_values, disp_init_cost=True, disp_result=
     """
     if disp_init_cost:
         #show the value of objective function at the starting values
-        cost = costfunction(initial_params)
+        cost = costfunction(start_params)
         print('Initial Cost Function = ', cost, '\n')
     
     #Start optimization by L-BFGS-B method
     t0 = tm.clock()
-    res = opt.minimize(costfunction, initial_params, method='L-BFGS-B',\
+    res = opt.minimize(costfunction, start_params, method='L-BFGS-B',\
                    bounds=bound_values,callback=callbackF,\
                    options={'disp': True})
     print('Elapsed time for optimization: ', tm.clock() - t0, '\n')
@@ -160,7 +164,7 @@ def callbackF(x):
     print('{0: 3d}  {1: 3.0f}   {2: 3.2f}   {3: 3.2f}   {4: 3.3f}    {5: 3.6f}'.format(Nfeval, x[0], x[1], x[2], x[3], costfunction(x)))
     Nfeval +=1
 
-def plot_result(res):
+def plot_result(params, labels, xmin, xmax):
     """
     Plot result of inversion
     """
@@ -244,7 +248,7 @@ def inv_multistart():
     for i in range(len(initU)):
         for j in range(len(initH)):
             for k in range(len(initC)):
-                init = [initial_params[0],initU[i],initH[j]]
+                init = [start_params[0],initU[i],initH[j]]
                 init.extend(initC[k])
                 initparams.append(init)
 
@@ -256,18 +260,22 @@ def inv_multistart():
     return res, initparams
 
 if __name__=="__main__":
-    #Set initial conditions of inverse model
+#    #Set initial conditions of inverse model
     read_setfile('config_sendai.ini') 
 
     #Read measurement data set
-    (spoints, deposit_o) = readdata(observation_x_file,\
-                                    observation_deposit_file)
+    (spoints, deposit_o) = readdata(observation_x_file, observation_deposit_file)
 
     #Conduct optimization
-    res = optimization(initial_params, bound_values)
-
+    res = optimization(start_params[0], bound_values)
+    xlist = np.loadtxt('inversion_result_sendai03.txt', delimiter=',')
+    params = [xlist[0],xlist[4],xlist[5],xlist[6],xlist[7],xlist[8]]
+    labels = ['Solution A', 'Solution B','Solution C','Solution D', 'Solution E', 'Solution F']
+    plot_result(params, labels, 0, 4000)
+    
+#    res.x = [4000, 2.5, 4.0, 0.003, 0.003, 0.003, 0.003]
     #Save the reuslt of inversion
-    save_result(inversion_result_file, inversion_x_file, inversion_deposit_file, res)
+    #save_result(inversion_result_file, inversion_x_file, inversion_deposit_file, res)
 
     #Plot results
     plot_result(res)
